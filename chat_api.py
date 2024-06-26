@@ -1,3 +1,4 @@
+import json
 import asyncio
 from threading import Thread
 from fastapi import FastAPI
@@ -30,6 +31,8 @@ def start_generation(query, max_new_tokens, temperature, top_p):
         add_generation_prompt=True,
         return_tensors='pt',
     )
+    total_prompt_tokens = inputs.size()[1]
+    total_output_tokens = 0
     inputs = inputs.to(model.device)
     streamer = TextIteratorStreamer(tokenizer=tokenizer, skip_prompt=True, timeout=60.0, skip_special_tokens=True)
     generation_kwargs = dict(
@@ -43,8 +46,12 @@ def start_generation(query, max_new_tokens, temperature, top_p):
     thread.start()
 
     for new_text in streamer:
-        yield new_text
+        total_output_tokens += len(tokenizer.encode(new_text))
+        yield json.dumps({'code': 200, 'success': True, 'data': new_text}, ensure_ascii=False)
         asyncio.sleep(0.1)
+
+    yield json.dumps({'code': 200, 'success': True, 'end': {'input_tokens': total_prompt_tokens,
+                                                            'total_tokens': total_prompt_tokens + total_output_tokens}}, ensure_ascii=False)
 
 
 @app.post('/chat')
@@ -53,7 +60,7 @@ async def stream(params: Item):
     max_new_tokens = params.max_new_tokens
     temperature = params.temperature
     top_p = params.top_p
-    print(f'query receieved: {query}')
+    print(f'Query receieved: {query}')
     return EventSourceResponse(start_generation(query, max_new_tokens, temperature, top_p), media_type='text/event-stream')
 
 
